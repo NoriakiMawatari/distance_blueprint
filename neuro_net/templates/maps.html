@@ -1,0 +1,212 @@
+{% extends "distance.html" %}
+
+{% block js %}
+<script type="text/javascript" charset="utf-8">
+    function init() {
+        //
+        var myMap = new ymaps.Map("map", {
+                center: [55.73, 37.75],
+                zoom: 9
+            }, {
+                searchControlProvider: 'yandex#search'
+            }),
+            moscowPolygon,
+            mkadPolygon;
+
+        $.ajax({
+            url: '../static/polygons.json',
+            dataType: 'json',
+            success: onPolygonLoad
+        });
+
+        function onPolygonLoad (json) {
+            moscowPolygon = new ymaps.Polygon(json.figure1.geometry.coordinates);
+            // Si no queremos que el contorno sea visible, configuremos la opción correspondiente.
+            moscowPolygon.options.set('visible', false);
+            // Para que las operaciones geométricas se realicen correctamente
+            // en el polígono proyectado, debe añadirse al mapa.
+            myMap.geoObjects.add(moscowPolygon);
+
+            mkadPolygon = new ymaps.Polygon(json.figure2.geometry.coordinates);
+            mkadPolygon.options.set("visible", false);
+            myMap.geoObjects.add(mkadPolygon);
+
+            ymaps.route(["MKAD", ['{{address_lat}}', '{{address_lng}}']]).then(
+                function (res) {
+                    // Combinar todos los segmentos de la ruta en una muestra.
+                    var pathsObjects = ymaps.geoQuery(res.getPaths()),
+                        edges = [];
+
+                    //console.log(pathsObjects.getLength()); // There's 1 path only
+                    //console.log(pathsObjects);
+                    pathsObjects.each(function (path) {
+                        var coords = path.geometry.getCoordinates();
+                        //console.log(coords);
+                        //console.log(JSON.stringify(coords));
+
+                    })
+
+                    // Vamos a repasar todos los segmentos y a dividirlos en segmentos.
+                    pathsObjects.each(function (path) {
+                        var coordinates = path.geometry.getCoordinates();
+                        for (var i = 1, l = coordinates.length; i < l; i++) {
+                            edges.push({
+                                type: 'LineString',
+                                coordinates: [coordinates[i], coordinates[i - 1]]
+                            });
+                        }
+                    });
+                    // Crear una nueva muestra que contenga:
+                    // - segmentos que describen la ruta;
+                    // - puntos de inicio y final;
+                    // - puntos intermedios.
+                    var routeObjects = ymaps.geoQuery(edges)
+                            .add(res.getWayPoints())
+                            .add(res.getViaPoints())
+                            .setOptions('strokeWidth', 3)
+                            .addToMap(myMap),
+
+                        // Vamos a encontrar todos los objetos que caen dentro del MKAD.
+                        objectsInMoscow = routeObjects.searchInside(moscowPolygon),
+                        // Busquemos objetos que crucen la MKAD.
+                        boundaryObjects = routeObjects.searchIntersect(moscowPolygon);
+                    // Los objetos fuera de la MKAD se obtienen excluyendo las muestras obtenidas de
+                    // la muestra original.
+                    objectsInMKAD = routeObjects.searchIntersect(mkadPolygon).remove(objectsInMoscow).remove(boundaryObjects);
+
+                    objectsOutMoscow = routeObjects.remove(objectsInMoscow).remove(boundaryObjects).remove(objectsInMKAD);
+
+                    // Pinte los objetos del interior, del exterior y del cruce de la carretera de circunvalación de Moscú de diferentes colores.
+                    boundaryObjects.setOptions({
+                        strokeColor: '#06ff00',
+                        preset: 'islands#greenIcon'
+                    });
+
+                    objectsInMoscow.setOptions({
+                        strokeColor: '#ff0005',
+                        preset: 'islands#redIcon'
+                    });
+
+                    objectsOutMoscow.setOptions({
+                        strokeColor: '#0010ff',
+                        preset: 'islands#blueIcon'
+                    });
+
+                    objectsInMKAD.setOptions({
+                        strokeColor: '#EA24E4',
+                        preset: 'islands#yellowIcon'
+                    });
+
+                    // This is not working right (See Yandex API Docs)
+                    // Look for end of a Polyline in methods
+                    console.log("Objects Inside Moscow length:" + objectsInMoscow.getLength());
+                    console.log("Objects Outside Moscow length:" + objectsOutMoscow.getLength());
+                    console.log("Objects Inside MKAD length:" + objectsInMKAD.getLength());
+
+
+                    address_point = ymaps.geoQuery([
+                        {
+                            type: 'Point',
+                            coordinates: ['{{address_lat}}', '{{address_lng}}']
+                        }
+                    ]),
+                    route_points = [];
+
+                    var point_inside = address_point.searchInside(moscowPolygon);
+                    console.log(point_inside.getLength());
+
+                    var point_inside_MKAD = address_point.searchInside(mkadPolygon);
+                    console.log(point_inside_MKAD.getLength());
+
+                    if (point_inside.getLength() == 1){
+                        console.log("Target is Inside");
+                        objectsInMoscow.each( function (line){
+                            route_points.push(
+                                line.geometry.getCoordinates()
+                            );
+                        });
+                    } else if (point_inside.getLength() == 0 && point_inside_MKAD.getLength() == 0) {
+                        console.log("Target is Outside");
+                        objectsOutMoscow.each( function (line){
+                            route_points.push(
+                                line.geometry.getCoordinates()
+                            );
+                        });
+                    } else{
+                        console.log("Target inside MKAD! INVALID!");
+                        alert("Invalid Address!");
+                    }
+
+
+
+                    //console.log(objectsOutMoscow.getExtreme('top'));
+                    //console.log(objectsOutMoscow.getExtreme('right'));
+
+                    //console.log(objectsOutMoscow.getBounds());
+
+                    //console.log(objectsOutMoscow.getExtreme('bottom'));
+                    //console.log(objectsOutMoscow.getExtreme('left'));
+
+
+
+
+                    // console.log('All points on route: ' + JSON.stringify(objsOut));
+                    console.log("Coords where intersects MKAD: " + JSON.stringify(route_points[0][0]));
+                    //console.log("Adddress coords: " + JSON.stringify(route_points[objectsOutMoscow.getLength()-1]));
+                    console.log("lat:" + parseFloat(JSON.stringify(route_points[0][0][0])));
+                    console.log("lng:" + parseFloat(JSON.stringify(route_points[0][0][1])));
+
+                    var multiRoute = new ymaps.multiRouter.MultiRoute({
+                        // Descripción de los puntos de referencia de multiRoute.
+                        referencePoints: [
+                            [parseFloat(JSON.stringify(route_points[0][0][0])),parseFloat(JSON.stringify(route_points[0][0][1]))],
+                            ['{{address_lat}}', '{{address_lng}}']
+
+                        ],
+                        // Parametros de enrutamiento.
+                        params: {
+                            // Limitar el número máximo de rutas que devolverá el router.
+                            results: 1
+                        }
+                    }, {
+                        // Establece automáticamente los límites del mapa para que toda la ruta sea visible..
+                        boundsAutoApply: true
+                    });
+
+                    // Añade una ruta múltiple al mapa.
+                    myMap.geoObjects.add(multiRoute);
+
+                    // Suscribirse al evento de actualización de datos de la ruta.
+                    multiRoute.model.events.add('requestsuccess', function() {
+                        // Obtener una referencia a la ruta activa.
+                        // En el ejemplo, se utiliza una ruta de conducción,
+                        // por lo tanto, el método getActiveRoute() devolverá el multiRouter.driving.Route.
+                        var activeRoute = multiRoute.getActiveRoute();
+                        // Visualización de la información de la ruta.
+                        console.log("Distance (miles): " + activeRoute.properties.get("distance").text);
+                        console.log("Travel time: " + activeRoute.properties.get("duration").text);
+                        // En el caso de las rutas de carretera, es posible mostrar
+                        // información sobre las secciones bloqueadas.
+                        if (activeRoute.properties.get("blocked")) {
+                            console.log("Some route sections are closed.");
+                        }
+
+                        var distance = document.createTextNode(activeRoute.properties.get("distance").text);
+
+                        document.getElementById("distance").appendChild(distance);
+
+                    });
+
+                    routeObjects.removeFrom(myMap);
+
+                }
+            );
+        }
+
+
+
+
+    }
+    ymaps.ready(init);
+</script>
+{% endblock %}
