@@ -33,7 +33,6 @@ def create_app() -> Flask:
             flash(error)
         return render_template("index.html")
 
-    # Register blueprint
     from .task import distance
 
     app.register_blueprint(distance)
